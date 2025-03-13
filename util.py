@@ -4,6 +4,7 @@ import numpy as np
 from matplotlib.patches import Patch
 import pandas as pd
 from scipy.stats import mannwhitneyu
+from xgboost import XGBClassifier
 
 
 def plot_diabetic_distribution(df):
@@ -410,5 +411,127 @@ def mann_whitney_test(df, binary_var, alpha=0.05):
 
     print(f"Results of Mann-Whitney U Test for '{binary_var}':")
     print(results)
+
+
+
+
+
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import StratifiedKFold
+from xgboost import XGBClassifier
+import matplotlib.pyplot as plt
+
+def evaluate_and_plot_models(df, target="Diabetic", n_splits=5, random_state=42):
+    """
+    Evaluate models using Stratified K-Fold cross-validation and plot the results.
+
+    Parameters:
+    - df: pd.DataFrame
+        The DataFrame containing the data.
+    - target: str, optional (default="Diabetic")
+        The target variable name.
+    - n_splits: int, optional (default=5)
+        Number of folds in Stratified K-Fold.
+    - random_state: int, optional (default=42)
+        Random state for reproducibility.
+    - title: str, optional
+        Title of the plot.
+
+    Returns:
+    None
+    """
+    # Setup the variables
+    y = target
+    X = df.columns.drop(y)
+
+    df[y] = df[y].astype(int)  # Correct the type of the target variable
+
+    X = df[X]
+    y = df[y]
+
+    # Baseline model (proportion of the dominant class)
+    dominant_class_proportion = y.value_counts(normalize=True).max()
+
+    # Models
+    models = {
+        "Logistic Regression": LogisticRegression(max_iter=10000, random_state=42),
+        "Decision Tree": DecisionTreeClassifier(random_state=100),
+        "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42),
+        "XGBoost": XGBClassifier(eval_metric="logloss", random_state=42),
+    }
+
+    # Perform K-Fold evaluation
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    results = {name: [] for name in models.keys()}
+
+    for train_idx, test_idx in skf.split(X, y):
+        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+
+        for name, model in models.items():
+            model.fit(X_train, y_train)
+            y_pred = model.predict(X_test)
+            accuracy = accuracy_score(y_test, y_pred)
+            results[name].append(accuracy)
+
+    # Plot the results
+    plt.figure(figsize=(12, 8))
+
+    # Generate unique colors for each model
+    colors = ['lightblue', 'lightgreen', 'purple', 'lightpink', 'lightyellow']
+
+    # Boxplot settings
+    boxprops = dict(linewidth=2, color="black")
+    whiskerprops = dict(linewidth=2, linestyle="--", color="gray")
+    capprops = dict(linewidth=2, color="black")
+    medianprops = dict(linewidth=2, color="blue")
+    flierprops = dict(marker='o', color='red', alpha=0.6)
+
+    # Create the boxplot
+    box = plt.boxplot(
+        results.values(),
+        labels=results.keys(),
+        boxprops=boxprops,
+        whiskerprops=whiskerprops,
+        capprops=capprops,
+        medianprops=medianprops,
+        flierprops=flierprops,
+        patch_artist=True
+    )
+
+    # Assign unique colors to each box
+    for patch, color in zip(box['boxes'], colors[:len(results)]):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.7)
+
+    # Plot the baseline
+    plt.axhline(y=dominant_class_proportion, color="red", linestyle="--", linewidth=2, label="Baseline")
+
+    # Add titles and labels
+    title=f"{n_splits}-Fold Accuracy Comparison"
+    
+    plt.title(title, fontsize=16, fontweight="bold")
+    plt.ylabel("Accuracy", fontsize=14)
+    plt.xlabel("Models", fontsize=14)
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.legend(fontsize=12)
+
+    # Show the plot
+    plt.tight_layout()
+    plt.show()
+
+
+
+
+
+
+
+
+
 
 
