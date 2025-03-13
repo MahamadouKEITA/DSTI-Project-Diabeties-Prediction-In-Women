@@ -3,6 +3,8 @@ import seaborn as sns
 import numpy as np
 from matplotlib.patches import Patch
 import pandas as pd
+from scipy.stats import mannwhitneyu
+
 
 def plot_diabetic_distribution(df):
     """
@@ -269,10 +271,144 @@ def plot_correlation_heatmap(df, title="Enhanced Correlation Heatmap (Purple)", 
 
 
 
+def plot_pairplot(df, hue="Diabetic", title="Pair Plot of Features Colored by Diabetic Status"):
+    """
+    Plots a pair plot of features colored by a specified hue.
+
+    Parameters:
+    df (DataFrame): The DataFrame containing the data.
+    hue (str): The column name to use for coloring the plots (default is 'Diabetic').
+    title (str): The title of the plot.
+
+    Returns:
+    None
+    """
+    # Custom color palette for the binary class: 0 -> Blue, 1 -> Red
+    palette = {0: "blue", 1: "red"}
+
+    # Create the pair plot
+    g = sns.pairplot(
+        df, 
+        hue=hue, 
+        palette=palette,
+        diag_kind="kde",  # KDE plots on the diagonal
+        markers=["o", "D"],  # Use distinct markers for each class
+        corner=True,
+        plot_kws={'alpha': 0.7, 's': 60, 'edgecolor': 'black'}  # Adjust marker size, transparency, and edges
+    )
+
+    # Add a main title
+    g.figure.suptitle(title, y=1.02, fontsize=16)
+
+    # Display the plot
+    plt.show()
+
+
+
+def plot_horizontal_bar_in_rows(df, binary_column):
+    """
+    Creates a row of horizontal bar plots for each numeric column in the DataFrame with a specified binary column as X.
+
+    Args:
+    df (pd.DataFrame): Input DataFrame.
+    binary_column (str): The binary column to use as the grouping variable.
+    """
+    # Ensure the binary column is present
+    if binary_column not in df.columns:
+        raise ValueError(f"The specified column '{binary_column}' is not in the DataFrame.")
+    
+    # Convert the binary column to a string if needed
+    df[binary_column] = df[binary_column].astype(str)
+
+    # Filter numeric columns excluding the binary column
+    numeric_columns = [col for col in df.select_dtypes(include='number').columns if col != binary_column]
+    
+    # Set up the plot grid
+    num_vars = len(numeric_columns)
+    fig, axes = plt.subplots(num_vars, 1, figsize=(10, 4 * num_vars), constrained_layout=True)
+    
+    # If there's only one numeric column, axes might not be iterable
+    if num_vars == 1:
+        axes = [axes]
+
+    for ax, col in zip(axes, numeric_columns):
+        # Prepare data for plotting
+        grouped_data = df.groupby(binary_column)[col].mean().reset_index()
+        
+        # Plot the data horizontally
+        sns.barplot(
+            y=binary_column, 
+            x=col, 
+            data=grouped_data, 
+            ax=ax, 
+            palette={"0": "blue", "1": "red"},
+            orient="h"  # Horizontal orientation
+        )
+        
+        # Customize the subplot
+        ax.set_title(f"Bar Plot of {col} by {binary_column}", fontsize=14)
+        ax.set_xlabel(f"Mean {col}", fontsize=12)
+        ax.set_ylabel(binary_column, fontsize=12)
+        ax.grid(axis="x", linestyle="--", alpha=0.7)
+
+    plt.show()
 
 
 
 
 
+def mann_whitney_test(df, binary_var, alpha=0.05):
+    """
+    Separates a DataFrame into two groups based on a binary variable and applies 
+    the Mann-Whitney U test to all numeric variables. Includes a significance column.
+    
+    Parameters:
+    - df: pd.DataFrame
+        The DataFrame containing the data.
+    - binary_var: str
+        The name of the binary variable (column) used for grouping.
+    - alpha: float, optional (default=0.05)
+        The significance level for determining if a result is statistically significant.
+        
+    Returns:
+    - results: pd.DataFrame
+        A DataFrame containing the U statistic, p-value, and significance for each numeric variable.
+    """
+    # Validate input
+    if binary_var not in df.columns:
+        raise ValueError(f"The binary variable '{binary_var}' is not in the DataFrame.")
+    
+    # Identify numeric columns
+    numeric_vars = df.columns.drop(binary_var)
+    if numeric_vars.empty:
+        raise ValueError("No numeric variables found in the DataFrame.")
+
+    # Prepare results
+    results = []
+
+    # Separate the groups based on the binary variable
+    group_0 = df[df[binary_var] == "0"]
+    group_1 = df[df[binary_var] == "1"]
+
+    # Ensure both groups have data
+    if group_0.empty or group_1.empty:
+        raise ValueError("One of the groups is empty. Check the binary variable values.")
+
+    # Apply the Mann-Whitney U test for each numeric variable
+    for var in numeric_vars:
+        u_stat, p_value = mannwhitneyu(group_0[var], group_1[var], alternative='two-sided')
+        is_significant = p_value < alpha
+        results.append({
+            "Variable": var, 
+            "U statistic": u_stat, 
+            "p-value": p_value, 
+            "is_significant": is_significant
+        })
+
+    # Convert results to a DataFrame
+    results = pd.DataFrame(results)
+
+    print(f"Results of Mann-Whitney U Test for '{binary_var}':")
+    print(results)
 
 
