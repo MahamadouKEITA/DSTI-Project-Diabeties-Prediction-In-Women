@@ -221,3 +221,58 @@ def plot_outlier_proportions(df, features, id_var='Diabetic', title="Proportion 
 
 
 
+
+def plot_correlation_heatmap(df, title="Enhanced Correlation Heatmap (Purple)", figsize=(12, 10), cmap_color="purple"):
+    """
+    Plots an enhanced correlation heatmap with a specified colormap.
+
+    Parameters:
+    df (DataFrame): The DataFrame containing the data.
+    title (str): The title of the plot.
+    figsize (tuple): The size of the figure.
+    cmap_color (str): The base color for the colormap.
+
+    Returns:
+    None
+    """
+    # Set a larger figure size and clean style for readability
+    plt.figure(figsize=figsize)
+    sns.set_theme(style="white", font_scale=1.2)
+
+    # Compute the correlation matrix
+    correlation_matrix = df.corr()
+
+    # Create a mask to hide the upper triangle (for a clean look)
+    mask = np.triu(np.ones_like(correlation_matrix, dtype=bool))
+
+    # Define a colormap
+    cmap = sns.light_palette(cmap_color, as_cmap=True)  # Light gradient colormap
+
+    # Create the heatmap
+    sns.heatmap(
+        correlation_matrix, 
+        mask=mask,  # Apply the mask
+        cmap=cmap,  # Use the specified colormap
+        annot=True,  # Show correlation coefficients
+        fmt=".2f",   # Format numbers to 2 decimal places
+        annot_kws={"size": 10},  # Adjust annotation size
+        linewidths=0.5,  # Add lines between cells for better readability
+        cbar_kws={"shrink": 0.8},  # Adjust color bar size
+        square=True  # Keep cells square-shaped
+    )
+
+    # Add a title
+    plt.title(title, fontsize=16, pad=20)
+
+    # Display the plot
+    plt.show()
+
+
+
+
+
+
+
+
+
+
