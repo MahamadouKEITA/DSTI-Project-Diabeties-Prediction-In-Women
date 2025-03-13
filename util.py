@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 from matplotlib.patches import Patch
+import pandas as pd
 
 def plot_diabetic_distribution(df):
     """
@@ -118,6 +119,105 @@ def plot_boxplot_with_outliers(df, id_var='Diabetic'):
     # Show the plot
     plt.show()
 
+
+
+
+def plot_histograms_with_outliers(df, features, colors, title="Histograms of Features with Outliers"):
+    """
+    Plots histograms of specified features with unique colors.
+
+    Parameters:
+    df (DataFrame): The DataFrame containing the data.
+    features (list): List of feature names to plot.
+    colors (list): List of colors for each feature.
+    title (str): The title of the plot.
+
+    Returns:
+    None
+    """
+
+    # Set Seaborn style for nice visuals
+    sns.set_theme(style="whitegrid", palette="muted", color_codes=True)
+
+    # Create a figure with 2x2 subplots
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))  # Adjust the figure size as needed
+    fig.suptitle(title, fontsize=16)
+
+    # Flatten axes for easy iteration
+    axes = axes.flatten()
+
+    # Plot histograms for each feature with unique colors
+    for i, (feature, color) in enumerate(zip(features, colors)):
+        sns.histplot(df[feature].dropna(), bins=100, kde=True, ax=axes[i], color=color)
+        axes[i].set_title(f"Distribution of {feature}", fontsize=12)
+        axes[i].set_xlabel(feature, fontsize=10)
+        axes[i].set_ylabel("Frequency", fontsize=10)
+
+    # Adjust layout
+    plt.tight_layout(rect=[0, 0, 1, 0.96])  # Ensure the main title does not overlap
+    plt.show()
+
+
+
+def plot_outlier_proportions(df, features, id_var='Diabetic', title="Proportion of Outliers by Diabetic Status"):
+    """
+    Plots the proportion of outliers for specified features by a given identifier variable.
+
+    Parameters:
+    df (DataFrame): The DataFrame containing the data.
+    features (list): List of feature names to analyze.
+    id_var (str): The column name to use for grouping (default is 'Diabetic').
+    title (str): The title of the plot.
+
+    Returns:
+    None
+    """
+    # Set Seaborn style for nice visuals
+    sns.set_theme(style="whitegrid", palette="muted", color_codes=True)
+
+    # Define a function to detect outliers using IQR method
+    def detect_outliers_iqr(data):
+        Q1 = data.quantile(0.25)
+        Q3 = data.quantile(0.75)
+        IQR = Q3 - Q1
+        lower_bound = Q1 - 1.5 * IQR
+        upper_bound = Q3 + 1.5 * IQR
+        return (data < lower_bound) | (data > upper_bound)
+
+    # Create a DataFrame to store outlier-related data
+    df_outliers = pd.DataFrame(index=df.index)
+
+    # Proportion of Outliers per Category (id_var=0 and id_var=1)
+    outlier_proportions = []
+
+    # Detect and save outliers in df_outliers
+    for feature in features:
+        # Detect outliers for the current feature
+        is_outlier = detect_outliers_iqr(df[feature])
+
+        # Add the actual outlier values to df_outliers
+        outlier_column_name = f"{feature}_outliers"
+        df_outliers[outlier_column_name] = is_outlier.astype(int)  # Add binary indicator to df_outliers (1 = outlier, 0 = non-outlier)
+        df_outliers[outlier_column_name] = df[feature].where(is_outlier, other=0)
+
+        # Calculate proportion of outliers for each group
+        proportions = df.groupby(id_var)[feature].apply(
+            lambda x: is_outlier.loc[x.index].mean() * 100
+        )
+        outlier_proportions.append(proportions)
+
+    # Combine results into a DataFrame for easier plotting
+    outlier_summary = pd.DataFrame(outlier_proportions, index=features)
+    outlier_summary.columns = [f'Non-{id_var} (%)', f'{id_var} (%)']
+
+    # Plot the proportions as a grouped barplot
+    outlier_summary.plot(kind='bar', figsize=(12, 6), color=['blue', 'red'])
+    plt.title(title, fontsize=16)
+    plt.xlabel("Features", fontsize=12)
+    plt.ylabel("Outlier Proportion (%)", fontsize=12)
+    plt.legend(title=f"{id_var} Status")
+    plt.tight_layout()
+    plt.show()
 
 
 
