@@ -525,7 +525,50 @@ def evaluate_and_plot_models(df, target="Diabetic", n_splits=5, random_state=42)
     plt.tight_layout()
     plt.show()
 
+def train_and_plot_feature_importance(X, y, importance_type='gain', max_features=10, random_state=42):
+    """
+    Train an XGBoost model and plot the feature importance.
 
+    Parameters:
+    - X: pd.DataFrame
+        Feature matrix.
+    - y: pd.Series or np.array
+        Target variable.
+    - importance_type: str, optional (default='gain')
+        Type of importance ('weight', 'gain', 'cover', 'total_gain', 'total_cover').
+    - max_features: int, optional (default=10)
+        Maximum number of features to display.
+    - random_state: int, optional (default=42)
+        Random state for reproducibility.
+
+    Returns:
+    - None
+    """
+    # Train the XGBoost model
+    model = XGBClassifier(eval_metric="logloss", random_state=random_state)
+    model.fit(X, y)
+
+    # Get feature importance scores
+    importance = model.get_booster().get_score(importance_type=importance_type)
+    
+    # Convert to a DataFrame
+    importance_df = pd.DataFrame(
+        {'Feature': list(importance.keys()), 'Importance': list(importance.values())}
+    ).sort_values(by="Importance", ascending=False)
+    
+    # Select the top features
+    top_features = importance_df.head(max_features)
+    
+    # Plot
+    plt.figure(figsize=(10, 6))
+    plt.barh(top_features['Feature'], top_features['Importance'], color='skyblue')
+    plt.xlabel("Importance", fontsize=14)
+    plt.ylabel("Feature", fontsize=14)
+    plt.title(f"Top {max_features} Features by {importance_type.capitalize()}", fontsize=16, fontweight="bold")
+    plt.gca().invert_yaxis()  # Reverse order for better visualization
+    plt.grid(axis='x', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.show()
 
 
 
