@@ -5,6 +5,11 @@ from matplotlib.patches import Patch
 import pandas as pd
 from scipy.stats import mannwhitneyu
 from xgboost import XGBClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import StratifiedKFold
 
 
 def plot_diabetic_distribution(df):
@@ -416,13 +421,6 @@ def mann_whitney_test(df, binary_var, alpha=0.05):
 
 
 
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
-from sklearn.model_selection import StratifiedKFold
-from xgboost import XGBClassifier
-import matplotlib.pyplot as plt
 
 def evaluate_and_plot_models(df, target="Diabetic", n_splits=5, random_state=42):
     """
@@ -525,15 +523,13 @@ def evaluate_and_plot_models(df, target="Diabetic", n_splits=5, random_state=42)
     plt.tight_layout()
     plt.show()
 
-def train_and_plot_feature_importance(X, y, importance_type='gain', max_features=10, random_state=42):
+def plot_feature_importance(df, importance_type='gain', max_features=10, random_state=42):
     """
     Train an XGBoost model and plot the feature importance.
 
     Parameters:
-    - X: pd.DataFrame
-        Feature matrix.
-    - y: pd.Series or np.array
-        Target variable.
+    - df: pd.DataFrame
+        DataFrame containing the feature matrix and target variable.
     - importance_type: str, optional (default='gain')
         Type of importance ('weight', 'gain', 'cover', 'total_gain', 'total_cover').
     - max_features: int, optional (default=10)
@@ -544,6 +540,10 @@ def train_and_plot_feature_importance(X, y, importance_type='gain', max_features
     Returns:
     - None
     """
+    # Define the target variable and feature matrix
+    y = df['Diabetic'].astype(int)
+    X = df.drop(columns=['Diabetic'])
+
     # Train the XGBoost model
     model = XGBClassifier(eval_metric="logloss", random_state=random_state)
     model.fit(X, y)
@@ -569,6 +569,78 @@ def train_and_plot_feature_importance(X, y, importance_type='gain', max_features
     plt.grid(axis='x', linestyle='--', alpha=0.7)
     plt.tight_layout()
     plt.show()
+
+
+
+def detect_outliers_iqr(data):
+    """
+    Detect outliers using the IQR method.
+    """
+    Q1 = data.quantile(0.25)
+    Q3 = data.quantile(0.75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+    return (data < lower_bound) | (data > upper_bound)
+
+def handle_outliers(df, outliers_features = ['SerumInsulin', 'TricepsThickness', 'DiabetesPedigree', 'Age']):
+    """
+    Detects outliers in the specified features of df, creates a DataFrame to store outlier-related data,
+    and updates the original DataFrame with new columns for outliers.
+    
+    Parameters:
+    df (DataFrame): The main DataFrame.
+    outliers_features (list): List of features to detect outliers in.
+    
+    Returns:
+    DataFrame: The updated DataFrame with new columns for outliers.
+    """
+    # Create a DataFrame to store outlier-related data
+    df_outliers = pd.DataFrame(index=df.index)
+
+    # Detect and save outliers in df_outliers
+    for feature in outliers_features:
+        # Detect outliers for the current feature
+        is_outlier = detect_outliers_iqr(df[feature])
+        
+        # Add the actual outlier values to df_outliers
+        outlier_column_name = f"{feature}_outliers"
+        df_outliers[outlier_column_name] = df[feature].where(is_outlier, other=0)
+    
+    # Ensure proper alignment of indices between df and df_outliers
+    df_outliers = df_outliers.reindex(df.index)
+
+    # Iterate through columns in df_outliers
+    for col in df_outliers.columns:
+        if col.endswith('_outliers'):  # Check if the column name ends with '_outliers'
+            # Extract the corresponding base column name
+            base_col = col.replace('_outliers', '')
+            
+            # Check if the base column exists in df
+            if base_col in df.columns:
+                # Handle NaN values by filling them with 0 or other strategies
+                df_outliers[col] = df_outliers[col].fillna(0)  # Replace NaN with 0 in df_outliers
+                df[base_col] = df[base_col].fillna(0)          # Replace NaN with 0 in df
+                
+                # Create a new column in df by multiplying
+                df[f"{col}"] = df[base_col] * df_outliers[col]
+
+    return df
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
