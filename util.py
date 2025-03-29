@@ -10,8 +10,11 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import StratifiedKFold
-
-
+import optuna
+from optuna.samplers import TPESampler
+import xgboost as xgb
+from sklearn.metrics import roc_curve, auc
+from sklearn.model_selection import train_test_split
 
 def plot_diabetic_distribution(df):
     """
@@ -23,8 +26,6 @@ def plot_diabetic_distribution(df):
     Returns:
     None
     """
-    # Let's drop the PatientID columns
-    df.drop(columns="PatientID", inplace=True)
 
     # Calculate percentages
     counts = df['Diabetic'].value_counts(normalize=True) * 100
@@ -687,6 +688,7 @@ def xgboost_outliers_impacts(df, outliers_features = ['SerumInsulin', 'TricepsTh
                 # Create a new column in df by multiplying
                 df[f"{col}"] = df[base_col] * df_outliers[col]
 
+    df.to_csv("TAIPEI_diabetes_outliers.csv", index=False)  # Save the DataFrame with outliers handled
     # Train model after handling outliers
     X_handled = df.drop(columns=[target])
     scores_with_outliers = []
@@ -720,12 +722,328 @@ def xgboost_outliers_impacts(df, outliers_features = ['SerumInsulin', 'TricepsTh
 
 
 
+def plot_kfold_results(results, baseline_accuracy, title="K-Fold Results Comparison"):
+    """
+    Plots the results of K-Fold cross-validation for multiple models.
+
+    Parameters:
+    - results: dict
+        Dictionary where keys are model names and values are lists of accuracy scores.
+    - baseline_accuracy: float
+        Baseline accuracy to plot as a reference line.
+    - title: str, optional
+        Title of the plot.
+
+    Returns:
+    - None
+    """
+    plt.figure(figsize=(12, 8))
+
+    # Generate unique colors for each model
+    colors = ['lightblue', 'lightgreen', 'purple', 'lightpink', 'lightyellow']
+
+    # Boxplot settings
+    boxprops = dict(linewidth=2, color="black")
+    whiskerprops = dict(linewidth=2, linestyle="--", color="gray")
+    capprops = dict(linewidth=2, color="black")
+    medianprops = dict(linewidth=2, color="blue")
+    flierprops = dict(marker='o', color='red', alpha=0.6)
+
+    # Create the boxplot
+    box = plt.boxplot(
+        results.values(),
+        labels=results.keys(),
+        boxprops=boxprops,
+        whiskerprops=whiskerprops,
+        capprops=capprops,
+        medianprops=medianprops,
+        flierprops=flierprops,
+        patch_artist=True
+    )
+
+    # Assign unique colors to each box
+    for patch, color in zip(box['boxes'], colors[:len(results)]):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.7)
+
+    # Plot the baseline
+    plt.axhline(y=baseline_accuracy, color="red", linestyle="--", linewidth=2, label="Baseline")
+
+    # Add titles and labels
+    plt.title(title, fontsize=16, fontweight="bold")
+    plt.ylabel("Accuracy", fontsize=14)
+    plt.xlabel("Models", fontsize=14)
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.legend(fontsize=12)
+
+    # Show the plot
+    plt.tight_layout()
+    plt.show()
+
+def objective_xgboost(trial, X, y, n_splits=10, random_state=42):
+    """
+    Objective function for Bayesian Optimization of XGBoost using Optuna.
+    Optimizes tree structure, learning process, robustness, and imbalance handling.
+    """
+    # Define hyperparameter space
+    param = {
+        "n_estimators": trial.suggest_int("n_estimators", 50, 500),
+        "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3),
+        "max_depth": trial.suggest_int("max_depth", 3, 15),
+        "min_child_weight": trial.suggest_int("min_child_weight", 1, 10),
+        "subsample": trial.suggest_float("subsample", 0.6, 1.0),
+        "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 1.0),
+        "scale_pos_weight": trial.suggest_float("scale_pos_weight", 1, 10),
+        "objective": "binary:logistic",
+        "eval_metric": "logloss",
+        "tree_method": "hist",
+        "verbosity": 0,
+        "seed": random_state
+    }
+
+    # Perform Stratified K-Fold Cross-Validation
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    accuracies = []
+
+    for train_idx, test_idx in skf.split(X, y):
+        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+
+        # Convert to DMatrix format
+        dtrain = xgb.DMatrix(X_train, label=y_train)
+        dtest = xgb.DMatrix(X_test, label=y_test)
+
+        # Train the model
+        bst = xgb.train(
+            param,
+            dtrain,
+            num_boost_round=param["n_estimators"],
+            evals=[(dtest, "validation")],
+            early_stopping_rounds=50,
+            verbose_eval=False
+        )
+
+        # Predict and evaluate
+        y_pred = (bst.predict(dtest) > 0.5).astype(int)
+        accuracies.append(accuracy_score(y_test, y_pred))
+
+    return np.mean(accuracies)
+
+def optimize_and_compare_xgboost(X, y, n_trials=50, n_splits=10, random_state=42):
+    """
+    Optimize XGBoost using Bayesian Optimization with Optuna and compare performance
+    with a basic model using Stratified K-Fold Cross-Validation. Also plots the evolution
+    of accuracy as a function of the number of trials.
+    """
+
+    # Disable Optuna logs
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+    # Optimize XGBoost
+    study = optuna.create_study(direction="maximize", sampler=TPESampler(seed=random_state))
+    study.optimize(
+        lambda trial: objective_xgboost(trial, X, y, n_splits, random_state),
+        n_trials=n_trials,
+    )
+
+    # Plot the evolution of accuracy
+    trial_numbers = [trial.number for trial in study.trials]
+    trial_accuracies = [trial.value for trial in study.trials]
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(trial_numbers, trial_accuracies, marker='o', linestyle='-', color='blue', label='Accuracy')
+    plt.axhline(y=max(trial_accuracies), color='red', linestyle='--', label='Best Accuracy')
+    plt.title("Evolution of Accuracy with Number of Trials", fontsize=16, fontweight="bold")
+    plt.xlabel("Trial Number", fontsize=14)
+    plt.ylabel("Accuracy", fontsize=14)
+    plt.legend(fontsize=12)
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.show()
+
+    print("Best parameters:", study.best_params)
+    print("Best cross-validated accuracy:", study.best_value)
+
+    # Refit the best model with XGBClassifier
+    best_params = study.best_params
+    optimized_model = xgb.XGBClassifier(
+        n_estimators=best_params["n_estimators"],
+        learning_rate=best_params["learning_rate"],
+        max_depth=best_params["max_depth"],
+        min_child_weight=best_params["min_child_weight"],
+        subsample=best_params["subsample"],
+        colsample_bytree=best_params["colsample_bytree"],
+        scale_pos_weight=best_params["scale_pos_weight"],
+        objective="binary:logistic",
+        eval_metric="logloss",
+        tree_method="hist",
+        use_label_encoder=False,
+        random_state=random_state
+    )
+
+    # Evaluate basic model
+    basic_model = xgb.XGBClassifier(eval_metric="logloss", random_state=random_state)
+    skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=random_state)
+
+    def kfold_evaluation(model, X, y, skf):
+        scores = []
+        for train_idx, test_idx in skf.split(X, y):
+            X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+            y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+            model.fit(X_train, y_train)
+            scores.append(model.score(X_test, y_test))
+        return scores
+
+    results_basic = kfold_evaluation(basic_model, X, y, skf)
+    results_optimized = kfold_evaluation(optimized_model, X, y, skf)
+
+    # Combine results for boxplot comparison
+    combined_results = {
+        "Basic Model": results_basic,
+        "Optimized Model": results_optimized,
+    }
+
+    # Baseline Accuracy
+    baseline_accuracy = np.mean(results_basic)
+
+    # Plot Results
+    plot_kfold_results(combined_results, baseline_accuracy, title="Performance with 10-Folds: Basic vs Optimized XGBoost")
+
+    return optimized_model, study
+
+
+def calculate_optimal_threshold_with_kfolds(df, n_splits=10, random_state=42):
+    """
+    Calculates the optimal threshold using Stratified K-Fold cross-validation.
+
+    Parameters:
+    - df: pd.DataFrame
+        The DataFrame containing the feature matrix and target variable.
+    - n_splits: int, optional (default=10)
+        Number of folds for Stratified K-Fold cross-validation.
+    - random_state: int, optional (default=42)
+        Random state for reproducibility.
+
+    Returns:
+    - mean_optimal_threshold: float
+        The mean optimal threshold across all folds.
+    """
+    # Extract features (X) and target (y)
+    target = "Diabetic"
+    X = df.drop(columns=[target])
+    y = df[target].astype(int)
+
+    # Initialize Stratified K-Fold
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+
+    optimal_thresholds = []
+    roc_aucs = []
+
+    for train_idx, test_idx in skf.split(X, y):
+        # Split data into training and testing sets for the current fold
+        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+
+        # Train XGBoost model
+        model = XGBClassifier(eval_metric="logloss", use_label_encoder=False, random_state=random_state)
+        model.fit(X_train, y_train)
+
+        # Predict probabilities on the test set
+        y_prob = model.predict_proba(X_test)[:, 1]
+
+        # Compute ROC curve and AUC
+        fpr, tpr, thresholds = roc_curve(y_test, y_prob)
+        roc_auc = auc(fpr, tpr)
+        roc_aucs.append(roc_auc)
+
+        # Calculate Youden's J statistic to find the optimal threshold
+        youden_index = tpr - fpr
+        optimal_idx = np.argmax(youden_index)
+        optimal_threshold = thresholds[optimal_idx]
+        optimal_thresholds.append(optimal_threshold)
+
+    # Calculate the mean optimal threshold across all folds
+    mean_optimal_threshold = np.mean(optimal_thresholds)
+    mean_roc_auc = np.mean(roc_aucs)
+
+    # Print results
+    print(f"Mean Optimal Threshold: {mean_optimal_threshold:.2f}")
+    print(f"Mean ROC AUC: {mean_roc_auc:.2f}")
+
+    # Plot ROC AUC distribution across folds
+    plt.figure(figsize=(10, 6))
+    plt.plot(range(1, n_splits + 1), roc_aucs, marker='o', linestyle='-', color='blue', label="ROC AUC per Fold")
+    plt.axhline(y=mean_roc_auc, color='red', linestyle='--', label=f"Mean ROC AUC = {mean_roc_auc:.2f}")
+    plt.title("ROC AUC Across Folds", fontsize=16, fontweight="bold")
+    plt.xlabel("Fold Number", fontsize=14)
+    plt.ylabel("ROC AUC", fontsize=14)
+    plt.legend(fontsize=12)
+    plt.grid(alpha=0.7)
+    plt.tight_layout()
+    plt.show()
+
+    return mean_optimal_threshold
 
 
 
 
+def compare_xgboost_accuracy(df, optimal_threshold=0.34):
+    """
+    Compares the accuracy of a simple XGBoost model (default threshold = 0.5)
+    and the same model with an optimal threshold.
 
+    Parameters:
+    - df: pd.DataFrame
+        The DataFrame containing the feature matrix and target variable.
+    - optimal_threshold: float, optional (default=0.34)
+        The optimal threshold to use for comparison.
 
+    Returns:
+    - None
+    """
+    # Extract features (X) and target (y)
+    target = "Diabetic"
+    X = df.drop(columns=[target])
+    y = df[target].astype(int)
+
+    # Split the data into training and testing sets
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
+
+    # Train XGBoost model
+    model = XGBClassifier(eval_metric="logloss", use_label_encoder=False, random_state=42)
+    model.fit(X_train, y_train)
+
+    # Predict probabilities on the test set
+    y_prob = model.predict_proba(X_test)[:, 1]
+
+    # Predictions with default threshold (0.5)
+    y_pred_default = (y_prob >= 0.5).astype(int)
+
+    # Predictions with optimal threshold
+    y_pred_optimal = (y_prob >= optimal_threshold).astype(int)
+
+    # Calculate accuracy for both thresholds
+    accuracy_default = accuracy_score(y_test, y_pred_default)
+    accuracy_optimal = accuracy_score(y_test, y_pred_optimal)
+
+    # Plot the comparison
+    thresholds = ["Default Threshold (0.5)", f"Optimal Threshold ({optimal_threshold:.2f})"]
+    accuracies = [accuracy_default, accuracy_optimal]
+
+    plt.figure(figsize=(8, 6))
+    plt.bar(thresholds, accuracies, color=["skyblue", "orange"], alpha=0.8)
+    plt.ylim(0, 1)
+    plt.ylabel("Accuracy", fontsize=14)
+    plt.title("Accuracy Comparison: Default vs Optimal Threshold", fontsize=16, fontweight="bold")
+    plt.grid(axis="y", linestyle="--", alpha=0.7)
+    plt.tight_layout()
+    plt.show()
+
+    # Print the accuracies
+    print(f"Accuracy with Default Threshold (0.5): {accuracy_default:.2f}")
+    print(f"Accuracy with Optimal Threshold ({optimal_threshold:.2f}): {accuracy_optimal:.2f}")
 
 
 
