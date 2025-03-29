@@ -12,6 +12,7 @@ from sklearn.metrics import accuracy_score
 from sklearn.model_selection import StratifiedKFold
 
 
+
 def plot_diabetic_distribution(df):
     """
     Plots the distribution of diabetic status in the given DataFrame.
@@ -630,8 +631,91 @@ def handle_outliers(df, outliers_features = ['SerumInsulin', 'TricepsThickness',
 
 
 
+def xgboost_outliers_impacts(df, outliers_features = ['SerumInsulin', 'TricepsThickness', 'DiabetesPedigree', 'Age'], target="Diabetic", n_splits=5, random_state=42):
+    """
+    Handles outliers in the specified features of the DataFrame and compares the performance of an XGBoost model
+    with and without outliers using StratifiedKFold and a boxplot.
 
+    Parameters:
+    - df: pd.DataFrame
+        DataFrame containing the feature matrix and target variable.
+    - outliers_features: list
+        List of features to detect and handle outliers.
+    - target: str, optional (default="Diabetic")
+        Name of the target variable column.
+    - n_splits: int, optional (default=5)
+        Number of Stratified K-Fold splits.
+    - random_state: int, optional (default=42)
+        Random state for reproducibility.
 
+    Returns:
+    - None
+    """
+    # Prepare data
+    y = df[target].astype(int)
+    X = df.drop(columns=[target])
+
+    # Stratified K-Fold setup
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+
+    # Train model without handling outliers
+    model = XGBClassifier(eval_metric="logloss", random_state=random_state)
+    scores_without_outliers = []
+
+    for train_idx, test_idx in skf.split(X, y):
+        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+
+        model.fit(X_train, y_train)
+        scores_without_outliers.append(model.score(X_test, y_test))
+
+    # Handle outliers
+    df_outliers = handle_outliers(df, outliers_features)
+
+    # Iterate through columns in df_outliers
+    for col in df_outliers.columns:
+        if col.endswith('_outliers'):  # Check if the column name ends with '_outliers'
+            # Extract the corresponding base column name
+            base_col = col.replace('_outliers', '')
+            
+            # Check if the base column exists in df
+            if base_col in df.columns:
+                # Handle NaN values by filling them with 0 or other strategies
+                df_outliers[col] = df_outliers[col].fillna(0)  # Replace NaN with 0 in df_outliers
+                df[base_col] = df[base_col].fillna(0)          # Replace NaN with 0 in df
+                
+                # Create a new column in df by multiplying
+                df[f"{col}"] = df[base_col] * df_outliers[col]
+
+    # Train model after handling outliers
+    X_handled = df.drop(columns=[target])
+    scores_with_outliers = []
+
+    for train_idx, test_idx in skf.split(X_handled, y):
+        X_train, X_test = X_handled.iloc[train_idx], X_handled.iloc[test_idx]
+        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+
+        model.fit(X_train, y_train)
+        scores_with_outliers.append(model.score(X_test, y_test))
+
+    # Plot the results
+    plt.figure(figsize=(8, 6))
+    plt.boxplot(
+        [scores_without_outliers, scores_with_outliers],
+        labels=["Without Outliers", "With Outliers"],
+        patch_artist=True,
+        boxprops=dict(facecolor="lightblue", color="blue"),
+        medianprops=dict(color="red"),
+        whiskerprops=dict(color="blue"),
+        capprops=dict(color="blue"),
+        flierprops=dict(marker="o", color="red", alpha=0.6)
+    )
+    plt.title("XGBoost Performance : Outliers Impact", fontsize=16, fontweight="bold")
+    plt.ylabel("Accuracy", fontsize=14)
+    plt.xlabel("Model", fontsize=14)
+    plt.grid(axis="y", linestyle="--", alpha=0.7)
+    plt.tight_layout()
+    plt.show()
 
 
 
