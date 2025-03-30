@@ -10,11 +10,6 @@ st.set_page_config(page_title="Diabetes Risk Prediction", page_icon="🩺", layo
 # Load pre-trained model from local file
 @st.cache_resource
 def load_model():
-    model_path = "diabetes_model.pkl"  
-    if os.path.exists(model_path):
-        with open(model_path, 'rb') as f:
-            model = pickle.load(f)
-        return model
     
     data_path = "TAIPEI_diabetes.csv" 
     if os.path.exists(data_path):
@@ -25,8 +20,6 @@ def load_model():
         model = xgb.XGBClassifier()
         model.fit(X, y)
 
-        with open(model_path, 'wb') as f:
-            pickle.dump(model, f)
         return model
     
     raise FileNotFoundError("No model or data file found")
