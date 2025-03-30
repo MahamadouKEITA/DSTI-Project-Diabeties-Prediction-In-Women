@@ -119,5 +119,5 @@ st.sidebar.info("""
 This application uses an XGBoost model to predict diabetes risk based on patient data.
 """)
 st.sidebar.markdown("""
-Developed by [DSTI Students](https://github.com/your-profile).
+Developed by [DSTI Students](https://github.com/MahamadouKEITA/DSTI-Project-Diabeties-Prediction-In-Women).
 """)
