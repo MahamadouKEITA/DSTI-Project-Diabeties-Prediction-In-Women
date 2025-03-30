@@ -1,28 +1,46 @@
 import streamlit as st
 import xgboost as xgb
 import pandas as pd
+from util import handle_outliers
+import os 
 import pickle
-import os
-
 # Set page configuration (must be the first Streamlit command)
 st.set_page_config(page_title="Diabetes Risk Prediction", page_icon="🩺", layout="wide")
 
 # Load pre-trained model from local file
 @st.cache_resource
 def load_model():
-    
-    data_path = "TAIPEI_diabetes.csv" 
-    if os.path.exists(data_path):
+    model_path = "diabetes_model.pkl"
+    data_path = "TAIPEI_diabetes.csv"
+
+    if not os.path.exists(model_path):
+        if not os.path.exists(data_path):
+            raise FileNotFoundError("Data file not found. Please ensure 'TAIPEI_diabetes.csv' exists in the working directory.")
+
+        # Load and preprocess the data
         data = pd.read_csv(data_path)
-        X = data.drop(["Diabetic", "PatientID"], axis=1)  
-        y = data['Diabetic']
-        
+        if "PatientID" in data.columns:
+            data.drop("PatientID", axis=1, inplace=True)
+        data = handle_outliers(data)  # Ensure this function is defined and works correctly
+
+        # Split data into features and target
+        X = data.drop(["Diabetic"], axis=1)
+        y = data["Diabetic"]
+
+        # Train the model
         model = xgb.XGBClassifier()
         model.fit(X, y)
 
+        # Save the trained model to a file
+        with open(model_path, "wb") as f:
+            pickle.dump(model, f)
+
         return model
-    
-    raise FileNotFoundError("No model or data file found")
+    else:
+        # Load the model from the file
+        with open(model_path, "rb") as f:
+            model = pickle.load(f)
+        return model
 
 try:
     model = load_model()
@@ -86,7 +104,7 @@ if submitted:
                              columns=['Pregnancies', 'PlasmaGlucose', 'DiastolicBloodPressure',
                                       'TricepsThickness', 'SerumInsulin', 'BMI', 
                                       'DiabetesPedigree', 'Age'])
-    
+    input_data = handle_outliers(input_data)  # Ensure this function is defined and works correctly
     # Make prediction
     prediction = model.predict_proba(input_data)[0][1]
     risk_percentage = round(prediction * 100, 2)
